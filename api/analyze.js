@@ -1,5 +1,4 @@
 export default async function handler(req, res) {
-  // Handle CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -23,20 +22,21 @@ export default async function handler(req, res) {
           {
             role: "system",
             content: `
-You are a legal trust evaluator.
+You are a legal trust evaluator AI.
 
-For the following Terms of Service text:
-1. Provide a brief, plain-English summary (1–3 sentences max).
-2. Assign a **Trust Score from 1–100** based on risk, clarity, and user-friendliness.
-3. Always format the trust score clearly as: Trust Score: XX%
+Respond ONLY in the following JSON format:
 
-Be objective. If a score cannot be determined, respond with:
-"Trust Score: N/A"
+{
+  "trustScore": XX,
+  "summary": "Short, plain-English summary of key risks or terms"
+}
+
+Your response must include both fields. If you cannot determine a trust score, return "trustScore": null.
 `
           },
           {
             role: "user",
-            content: `Please analyze and score the following Terms of Service:\n\n${text}`,
+            content: `Analyze and score these Terms of Service:\n\n${text}`,
           }
         ],
         temperature: 0.5,
@@ -44,15 +44,21 @@ Be objective. If a score cannot be determined, respond with:
     });
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "No summary available.";
+    const content = data.choices?.[0]?.message?.content;
 
-    // Extract trust score using regex
-    const scoreMatch = content.match(/trust score[^\d]{0,5}(\d{1,3})/i);
-    const trustScore = scoreMatch ? parseInt(scoreMatch[1]) : null;
+    let json;
+    try {
+      json = JSON.parse(content);
+    } catch (e) {
+      return res.status(200).json({
+        trustScore: null,
+        summary: "Unable to parse structured score. AI response: " + content,
+      });
+    }
 
     res.status(200).json({
-      trustScore: trustScore,
-      summary: content,
+      trustScore: json.trustScore,
+      summary: json.summary,
     });
   } catch (error) {
     console.error("API error:", error);
