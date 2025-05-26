@@ -1,13 +1,23 @@
+// File: /api/analyze.js
+
 export default async function handler(req, res) {
+  // Set CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
+  // Handle preflight request
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ message: "Only POST requests allowed" });
+
+  // Only allow POST
+  if (req.method !== "POST") {
+    return res.status(405).json({ message: "Only POST requests allowed" });
+  }
 
   const { text } = req.body;
-  if (!text) return res.status(400).json({ message: "No text provided." });
+  if (!text) {
+    return res.status(400).json({ message: "No text provided." });
+  }
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -36,7 +46,7 @@ Your response must include both fields. If you cannot determine a trust score, r
           },
           {
             role: "user",
-            content: \`Analyze and score these Terms of Service:\\n\\n\${text}\`,
+            content: `Analyze and score these Terms of Service:\n\n${text}`,
           }
         ],
         temperature: 0.5,
@@ -46,7 +56,7 @@ Your response must include both fields. If you cannot determine a trust score, r
     const data = await response.json();
     let content = data.choices?.[0]?.message?.content?.trim();
 
-    // Remove surrounding quotes if GPT returns stringified JSON
+    // Handle stringified JSON
     if (content.startsWith('"') && content.endsWith('"')) {
       content = content.slice(1, -1); // Remove outer quotes
       content = content.replace(/\\"/g, '"'); // Fix escaped quotes
@@ -61,12 +71,13 @@ Your response must include both fields. If you cannot determine a trust score, r
         summary: "Unable to parse structured score. Raw AI response: " + content,
       });
     }
-// Trigger redeploy after project rename
 
+    // Return final structured result
     res.status(200).json({
       trustScore: json.trustScore,
       summary: json.summary,
     });
+
   } catch (error) {
     console.error("API error:", error);
     res.status(500).json({ message: "Internal server error." });
