@@ -6,17 +6,16 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Handle preflight request
   if (req.method === "OPTIONS") return res.status(200).end();
-
-  // Only allow POST
-  if (req.method !== "POST") {
-    return res.status(405).json({ message: "Only POST requests allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ message: "Only POST requests allowed" });
 
   const { text } = req.body;
-  if (!text) {
-    return res.status(400).json({ message: "No text provided." });
+  if (!text) return res.status(400).json({ message: "No text provided." });
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.error("Missing OPENAI_API_KEY in environment variables");
+    return res.status(500).json({ message: "OPENAI_API_KEY is not defined on the server." });
   }
 
   try {
@@ -24,7 +23,7 @@ export default async function handler(req, res) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: "gpt-4-turbo",
@@ -54,12 +53,21 @@ Your response must include both fields. If you cannot determine a trust score, r
     });
 
     const data = await response.json();
+
+    if (!response.ok) {
+      console.error("OpenAI API error:", data);
+      return res.status(response.status).json({
+        message: "OpenAI API call failed.",
+        error: data.error?.message || "Unknown error from OpenAI"
+      });
+    }
+
     let content = data.choices?.[0]?.message?.content?.trim();
 
     // Handle stringified JSON
-    if (content.startsWith('"') && content.endsWith('"')) {
-      content = content.slice(1, -1); // Remove outer quotes
-      content = content.replace(/\\"/g, '"'); // Fix escaped quotes
+    if (content?.startsWith('"') && content.endsWith('"')) {
+      content = content.slice(1, -1);
+      content = content.replace(/\\"/g, '"');
     }
 
     let json;
@@ -72,14 +80,16 @@ Your response must include both fields. If you cannot determine a trust score, r
       });
     }
 
-    // Return final structured result
     res.status(200).json({
       trustScore: json.trustScore,
       summary: json.summary,
     });
 
   } catch (error) {
-    console.error("API error:", error);
-    res.status(500).json({ message: "Internal server error." });
+    console.error("Unhandled API error:", error);
+    res.status(500).json({ 
+      message: "Internal server error.",
+      error: error.message || "Unknown"
+    });
   }
 }
