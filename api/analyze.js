@@ -36,7 +36,7 @@ Your response must include both fields. If you cannot determine a trust score, r
           },
           {
             role: "user",
-            content: `Analyze and score these Terms of Service:\n\n${text}`,
+            content: \`Analyze and score these Terms of Service:\\n\\n\${text}\`,
           }
         ],
         temperature: 0.5,
@@ -44,7 +44,13 @@ Your response must include both fields. If you cannot determine a trust score, r
     });
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    let content = data.choices?.[0]?.message?.content?.trim();
+
+    // Remove surrounding quotes if GPT returns stringified JSON
+    if (content.startsWith('"') && content.endsWith('"')) {
+      content = content.slice(1, -1); // Remove outer quotes
+      content = content.replace(/\\"/g, '"'); // Fix escaped quotes
+    }
 
     let json;
     try {
@@ -52,7 +58,7 @@ Your response must include both fields. If you cannot determine a trust score, r
     } catch (e) {
       return res.status(200).json({
         trustScore: null,
-        summary: "Unable to parse structured score. AI response: " + content,
+        summary: "Unable to parse structured score. Raw AI response: " + content,
       });
     }
 
