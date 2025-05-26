@@ -61,6 +61,7 @@ Your response must include both fields. If you cannot determine a trust score, r
         summary: "Unable to parse structured score. Raw AI response: " + content,
       });
     }
+// Trigger redeploy after project rename
 
     res.status(200).json({
       trustScore: json.trustScore,
