@@ -1,5 +1,8 @@
 // File: /api/analyze.js
 
+import cheerio from "cheerio";
+import fetch from "node-fetch";
+
 export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -9,8 +12,21 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ message: "Only POST requests allowed" });
 
-  const { text } = req.body;
-  if (!text) return res.status(400).json({ message: "No text provided." });
+  let { text, url } = req.body;
+
+  if (!text && url) {
+    try {
+      const response = await fetch(url);
+      const html = await response.text();
+      const $ = cheerio.load(html);
+      text = $('body').text().replace(/\s+/g, ' ').trim();
+    } catch (err) {
+      console.error("Error scraping URL:", err);
+      return res.status(500).json({ message: "Failed to scrape URL content." });
+    }
+  }
+
+  if (!text) return res.status(400).json({ message: "No text provided and scraping failed or URL missing." });
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -26,70 +42,29 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4-turbo",
+        model: "gpt-3.5-turbo",
         messages: [
           {
             role: "system",
-            content: `
-You are a legal trust evaluator AI.
-
-Respond ONLY in the following JSON format:
-
-{
-  "trustScore": XX,
-  "summary": "Short, plain-English summary of key risks or terms"
-}
-
-Your response must include both fields. If you cannot determine a trust score, return "trustScore": null.
-`
+            content: "You're a legal AI that evaluates website terms of service for user transparency and fairness.",
           },
           {
             role: "user",
-            content: `Analyze and score these Terms of Service:\n\n${text}`,
-          }
+            content: `Evaluate the following Terms of Service and provide a summary and trustworthiness score (1 to 10):\n\n${text}`,
+          },
         ],
-        temperature: 0.5,
       }),
     });
 
     const data = await response.json();
+    const aiMessage = data.choices?.[0]?.message?.content || "No response from AI.";
 
-    if (!response.ok) {
-      console.error("OpenAI API error:", data);
-      return res.status(response.status).json({
-        message: "OpenAI API call failed.",
-        error: data.error?.message || "Unknown error from OpenAI"
-      });
-    }
-
-    let content = data.choices?.[0]?.message?.content?.trim();
-
-    // Handle stringified JSON
-    if (content?.startsWith('"') && content.endsWith('"')) {
-      content = content.slice(1, -1);
-      content = content.replace(/\\"/g, '"');
-    }
-
-    let json;
-    try {
-      json = JSON.parse(content);
-    } catch (e) {
-      return res.status(200).json({
-        trustScore: null,
-        summary: "Unable to parse structured score. Raw AI response: " + content,
-      });
-    }
-
-    res.status(200).json({
-      trustScore: json.trustScore,
-      summary: json.summary,
+    return res.status(200).json({
+      trustScore: null, // optionally extract from AI response later
+      summary: aiMessage,
     });
-
-  } catch (error) {
-    console.error("Unhandled API error:", error);
-    res.status(500).json({ 
-      message: "Internal server error.",
-      error: error.message || "Unknown"
-    });
+  } catch (err) {
+    console.error("Error calling OpenAI:", err);
+    return res.status(500).json({ message: "Error processing request." });
   }
 }
