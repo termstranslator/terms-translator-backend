@@ -4,7 +4,6 @@ import cheerio from "cheerio";
 import fetch from "node-fetch";
 
 export default async function handler(req, res) {
-  // Set CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -16,7 +15,11 @@ export default async function handler(req, res) {
 
   if (!text && url) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        }
+      });
       const html = await response.text();
       const $ = cheerio.load(html);
       text = $('body').text().replace(/\s+/g, ' ').trim();
@@ -60,7 +63,7 @@ export default async function handler(req, res) {
     const aiMessage = data.choices?.[0]?.message?.content || "No response from AI.";
 
     return res.status(200).json({
-      trustScore: null, // optionally extract from AI response later
+      trustScore: null,
       summary: aiMessage,
     });
   } catch (err) {
