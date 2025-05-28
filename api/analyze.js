@@ -1,85 +1,73 @@
-import cheerio from "cheerio";
-import fetch from "node-fetch";
+import axios from "axios";
+import * as cheerio from "cheerio";
+import puppeteer from "puppeteer";
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") {
-    return res.status(405).json({ message: "Only POST requests allowed" });
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  let { text, url } = req.body;
+  const { url } = req.body;
+  let rawText = "";
 
-  if (!text && url) {
+  try {
+    // ✅ Try fast scrape first
+    const response = await axios.get(url, { timeout: 7000 });
+    const $ = cheerio.load(response.data);
+    rawText = $("body").text().trim();
+    if (!rawText || rawText.length < 1000) throw new Error("Too little content from cheerio");
+  } catch (axiosError) {
+    console.warn("Basic scraping failed, using Puppeteer...");
+
     try {
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-          "Accept": "text/html,application/xhtml+xml"
-        }
+      const browser = await puppeteer.launch({
+        headless: "new",
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
       });
-
-      const html = await response.text();
-      const $ = cheerio.load(html);
-      text = $('body').text().replace(/\s+/g, ' ').trim().slice(0, 6000);
-
-      if (!text || text.length < 100) {
-        return res.status(400).json({ message: "Page content too short to analyze." });
-      }
-    } catch (err) {
-      return res.status(500).json({ message: "Error scraping webpage", error: err.message });
+      const page = await browser.newPage();
+      await page.goto(url, { waitUntil: "networkidle2", timeout: 15000 });
+      rawText = await page.evaluate(() => document.body.innerText);
+      await browser.close();
+    } catch (puppeteerError) {
+      console.error("Puppeteer failed:", puppeteerError);
+      return res.status(500).json({
+        message: "Error scraping webpage",
+        error: puppeteerError.message,
+      });
     }
-  }
-
-  if (!text) {
-    return res.status(400).json({ message: "No text available to analyze." });
-  }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ message: "Missing OpenAI API key." });
   }
 
   try {
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    // ✅ OpenAI call (replace this with your real implementation)
+    const result = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-3.5-turbo",
+        model: "gpt-4",
         messages: [
           {
             role: "system",
-            content: "You are a legal AI. Evaluate the following Terms of Service and provide a summary and trustworthiness score from 1 to 10."
+            content:
+              "Analyze this website's Terms of Service and return a JSON object with: score, flag, summary, date, and a breakdown array with categories and comments.",
           },
           {
             role: "user",
-            content: text
-          }
-        ]
-      })
+            content: rawText,
+          },
+        ],
+        temperature: 0.3,
+      }),
     });
 
-    const data = await aiResponse.json();
+    const json = await result.json();
+    const parsed = JSON.parse(json.choices[0].message.content); // assumes JSON output from GPT
 
-    if (!aiResponse.ok) {
-      return res.status(500).json({ message: "OpenAI error", status: aiResponse.status, details: data });
-    }
-
-    const content = data.choices?.[0]?.message?.content || "No summary available.";
-    const scoreMatch = content.match(/(?:score|rating)\D*(\d{1,2})/i);
-    const trustScore = scoreMatch ? parseInt(scoreMatch[1]) : null;
-
-    return res.status(200).json({
-      summary: content,
-      trustScore
-    });
+    res.status(200).json(parsed);
   } catch (err) {
-    return res.status(500).json({ message: "OpenAI request failed", error: err.message });
+    console.error("OpenAI error:", err);
+    res.status(500).json({ error: "OpenAI request failed", message: err.message });
   }
 }
