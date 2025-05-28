@@ -9,39 +9,48 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ message: "Only POST requests allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ message: "Only POST requests allowed" });
+  }
 
   let { text, url } = req.body;
 
+  // Step 1: Scrape the webpage text if no text is provided
   if (!text && url) {
     try {
       const response = await fetch(url, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.5",
-          "Connection": "keep-alive"
-        }
+          "Accept": "text/html,application/xhtml+xml",
+        },
       });
+
       const html = await response.text();
       const $ = cheerio.load(html);
-      text = $('body').text().replace(/\s+/g, ' ').trim();
+      text = $('body').text().replace(/\s+/g, ' ').trim().slice(0, 6000); // Cap input length
+
+      if (!text || text.length < 100) {
+        return res.status(400).json({ message: "Page content too short to analyze." });
+      }
     } catch (err) {
-      console.error("Error scraping URL:", err);
-      return res.status(500).json({ message: "Failed to scrape URL content." });
+      console.error("Scraping failed:", err);
+      return res.status(500).json({ message: "Error scraping webpage." });
     }
   }
 
-  if (!text) return res.status(400).json({ message: "No text provided and scraping failed or URL missing." });
+  if (!text) {
+    return res.status(400).json({ message: "No text available to analyze." });
+  }
 
+  // Step 2: Call OpenAI
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.error("Missing OPENAI_API_KEY in environment variables");
-    return res.status(500).json({ message: "OPENAI_API_KEY is not defined on the server." });
+    console.error("OPENAI_API_KEY is missing");
+    return res.status(500).json({ message: "Missing OpenAI API key." });
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -52,25 +61,33 @@ export default async function handler(req, res) {
         messages: [
           {
             role: "system",
-            content: "You're a legal AI that evaluates website terms of service for user transparency and fairness.",
+            content: "You are a legal assistant. Analyze this Terms of Service and rate its fairness from 1 (untrustworthy) to 10 (very trustworthy).",
           },
           {
             role: "user",
-            content: `Evaluate the following Terms of Service and provide a summary and trustworthiness score (1 to 10):\n\n${text}`,
+            content: `Please analyze and rate the following Terms of Service:\n\n${text}`,
           },
         ],
       }),
     });
 
-    const data = await response.json();
-    const aiMessage = data.choices?.[0]?.message?.content || "No response from AI.";
+    const data = await aiResponse.json();
+    const message = data.choices?.[0]?.message?.content || "No response.";
+
+    // Step 3: Extract trust score from response
+    let trustScore = null;
+    const match = message.match(/(?:score|rating)\D*(\d{1,2})/i);
+    if (match) {
+      const num = parseInt(match[1]);
+      if (num >= 1 && num <= 10) trustScore = num;
+    }
 
     return res.status(200).json({
-      trustScore: null,
-      summary: aiMessage,
+      summary: message,
+      trustScore,
     });
   } catch (err) {
-    console.error("Error calling OpenAI:", err);
-    return res.status(500).json({ message: "Error processing request." });
+    console.error("OpenAI call failed:", err);
+    return res.status(500).json({ message: "OpenAI request failed." });
   }
 }
