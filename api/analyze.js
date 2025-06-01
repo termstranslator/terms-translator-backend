@@ -24,8 +24,12 @@ export default async function handler(req, res) {
 
     const output = completion.data.choices[0].message.content;
     return res.status(200).json({ summary: output });
+
   } catch (error) {
-    console.error("Server error:", error.message);
-    return res.status(500).send("Server error occurred.");
+    console.error("🔴 FULL ERROR:", error);
+    return res.status(500).json({
+      error: error.message || "Unknown server error",
+      details: error.response?.data || "No error response from OpenAI"
+    });
   }
 }
