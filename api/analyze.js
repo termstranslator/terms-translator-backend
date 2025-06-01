@@ -17,19 +17,23 @@ export default async function handler(req, res) {
       ? `Summarize the following terms:\n\n${text}`
       : `Summarize the terms of service at this URL:\n${url}`;
 
+    console.log("⏳ Sending to OpenAI...");
+
     const completion = await openai.createChatCompletion({
       model: "gpt-4",
       messages: [{ role: "user", content: prompt }],
+      timeout: 15000 // 15s safety limit
     });
 
     const output = completion.data.choices[0].message.content;
+    console.log("✅ OpenAI responded.");
     return res.status(200).json({ summary: output });
 
   } catch (error) {
-    console.error("🔴 FULL ERROR:", error);
+    console.error("🔥 Server crash:", error.message, error.response?.data);
     return res.status(500).json({
       error: error.message || "Unknown server error",
-      details: error.response?.data || "No error response from OpenAI"
+      details: error.response?.data || "No response from OpenAI"
     });
   }
 }
