@@ -6,17 +6,6 @@ const configuration = new Configuration({
 const openai = new OpenAIApi(configuration);
 
 export default async function handler(req, res) {
-  // ✅ Preflight request support
-  if (req.method === "OPTIONS") {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    return res.status(200).end();
-  }
-
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
   try {
     const { url, text } = req.body;
 
@@ -28,6 +17,8 @@ export default async function handler(req, res) {
       ? `Summarize the following terms:\n\n${text}`
       : `Summarize the terms of service at this URL:\n${url}`;
 
+    console.log("🔍 Prompt sent to OpenAI:", prompt);
+
     const completion = await openai.createChatCompletion({
       model: "gpt-4",
       messages: [{ role: "user", content: prompt }],
@@ -35,12 +26,11 @@ export default async function handler(req, res) {
 
     const output = completion.data.choices[0].message.content;
     return res.status(200).json({ summary: output });
-
   } catch (error) {
-    console.error("🔴 FULL ERROR:", error);
+    console.error("❌ Backend Error:", error.response?.data || error.message || error);
     return res.status(500).json({
-      error: error.message || "Unknown server error",
-      details: error.response?.data || "No error response from OpenAI"
+      error: "Backend processing failed",
+      details: error.response?.data || "No response data",
     });
   }
 }
