@@ -1,14 +1,29 @@
-{
-  "name": "terms-translator-backend",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "dev": "node index.js",
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "cheerio": "^1.0.0-rc.12",
-    "node-fetch": "^2.6.7",
-    "openai": "^4.20.0"
+import express from "express";
+import fetch from "node-fetch";
+import OpenAI from "openai";
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+// Basic test endpoint
+app.get("/", (req, res) => {
+  res.send("OPS-ZERO Backend is running ✅");
+});
+
+// Example route (adjust as needed)
+app.get("/test-ai", async (req, res) => {
+  try {
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "Hello from Railway!" }],
+    });
+    res.json(completion);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-}
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
